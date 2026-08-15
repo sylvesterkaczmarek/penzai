@@ -748,6 +748,21 @@ class ShapecheckTest(absltest.TestCase):
       }
       self.assertEqual(res, expected)
 
+  def test_named_multidimvar_accepts_nonstring_axis_names(self):
+    batch_axis = pz.nx.TmpPosAxisMarker()
+    value = [
+        pz.nx.zeros({"in_axis": 2, batch_axis: 3}),
+        pz.nx.zeros({"out_axis": 4, batch_axis: 3}),
+    ]
+    pattern = [
+        pz.chk.ArraySpec(named_shape={"in_axis": 2, **pz.chk.var("batch")}),
+        pz.chk.ArraySpec(named_shape={"out_axis": 4, **pz.chk.var("batch")}),
+    ]
+
+    match = pz.chk.check_structure(value=value, pattern=pattern)
+
+    self.assertEqual(dict(match), {"batch": {batch_axis: 3}})
+
 
 if __name__ == "__main__":
   absltest.main()
