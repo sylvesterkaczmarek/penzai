@@ -586,7 +586,7 @@ class Linear(layer_base.Layer):
     }
     return shapecheck.ArraySpec(
         named_shape={**shapecheck.var("B"), **known_in_axes},
-        dtype=jnp.floating,
+        dtype=jnp.inexact,
     )
 
   def _output_structure(self):
@@ -597,7 +597,7 @@ class Linear(layer_base.Layer):
     }
     return shapecheck.ArraySpec(
         named_shape={**shapecheck.var("B"), **known_out_axes},
-        dtype=jnp.floating,
+        dtype=jnp.inexact,
     )
 
   def treescope_color(self) -> str:

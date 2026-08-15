@@ -17,6 +17,7 @@
 from absl.testing import absltest
 import chex
 import jax
+import jax.numpy as jnp
 from penzai import pz
 
 
@@ -105,6 +106,25 @@ class LinearAndAffineTest(absltest.TestCase):
         result,
         pz.chk.ArraySpec(
             named_shape={"batch": 1, "bar": 5, "baz": 7, "qux": 11}
+        ),
+    )
+
+  def test_linear_supports_complex_values(self):
+    layer = pz.nn.Linear.from_config(
+        name="complex_linear",
+        init_base_rng=jax.random.key(1),
+        input_axes={"foo": 3},
+        output_axes={"bar": 5},
+        dtype=jnp.complex64,
+        rename_outputs_if_necessary=False,
+    )
+    result = layer(
+        pz.nx.ones({"batch": 2, "foo": 3}, dtype=jnp.complex64) * (1 + 2j)
+    )
+    pz.chk.check_structure(
+        result,
+        pz.chk.ArraySpec(
+            named_shape={"batch": 2, "bar": 5}, dtype=jnp.complex64
         ),
     )
 
