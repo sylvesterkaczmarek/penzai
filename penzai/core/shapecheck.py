@@ -618,7 +618,6 @@ def _named_inline_multidimvars(
     binding = solutions[key.name]
     assert isinstance(binding.value, dict)
     for subkey, subval in binding.value.items():
-      assert isinstance(subkey, str)
       if subkey in new_pattern:
         return (
             _UnsatisfiedConstraint(
@@ -1038,7 +1037,6 @@ def check_structure(
           ):
             found = solutions[name[0]].value[name[1]]
         else:
-          assert isinstance(name[1], str)
           if isinstance(solutions[name[0]].value, dict):
             found = solutions[name[0]].value.get(name[1])
         if found != binding.value:
