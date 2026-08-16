@@ -99,6 +99,43 @@ class SimpleMlpTest(absltest.TestCase):
     self.assertEqual(outputs[-1]["count"], 119)
     self.assertLess(outputs[-1]["loss"], 0.0001)
 
+  def test_train_with_optimizer_extra_args(self):
+    mlp = simple_mlp.MLP.from_config(
+        name="mlp",
+        init_base_rng=jax.random.key(0),
+        feature_sizes=[1, 1],
+    )
+    inputs = pz.nx.wrap(
+        jnp.array([[1.0]], dtype=jnp.float32), "batch", "features"
+    )
+
+    def loss_fn(model, rng, state, inputs):
+      del rng
+      model_out = model(inputs).unwrap("batch", "features")
+      return jnp.sum(model_out**2), state, {}
+
+    def init_fn(params):
+      del params
+      return ()
+
+    def update_fn(updates, state, params=None, *, scale, **extra_args):
+      del params, extra_args
+      scaled_updates = jax.tree.map(lambda update: -scale * update, updates)
+      return scaled_updates, state
+
+    optimizer = optax.GradientTransformationExtraArgs(init_fn, update_fn)
+    trainer = basic_training.StatefulTrainer.build(
+        root_rng=jax.random.key(42),
+        model=mlp,
+        optimizer_def=optimizer,
+        loss_fn=loss_fn,
+        jit=False,
+    )
+
+    trainer.step(inputs=inputs, optimizer_extra_args={"scale": 0.1})
+
+    self.assertEqual(trainer.state.value.step, 1)
+
 
 if __name__ == "__main__":
   absltest.main()
