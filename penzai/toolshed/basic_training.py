@@ -88,7 +88,8 @@ def _stateful_trainer_step(
     frozen_params: tuple[pz.ParameterValue, ...],
     state_vars: tuple[pz.StateVariableValue, ...],
     loss_fn: LossFunction,
-    optimizer_def: optax.GradientTransformation,
+    optimizer_def: optax.GradientTransformationExtraArgs,
+    optimizer_extra_args: dict[str, Any],
     kwargs: dict[str, Any],
 ) -> tuple[
     AuxOutPyTree,
@@ -131,7 +132,7 @@ def _stateful_trainer_step(
 
   # Update parameters.
   updates, new_opt_state = optimizer_def.update(
-      grads, state.opt_state, trainable_params
+      grads, state.opt_state, trainable_params, **optimizer_extra_args
   )
   new_params = optax.apply_updates(trainable_params, updates)
 
@@ -170,7 +171,7 @@ class StatefulTrainer(pz.Struct):
   root_rng: PRNGKeyArray
   model: ModelPyTree
   state: pz.StateVariable[InternalTrainerState]
-  optimizer_def: optax.GradientTransformation = dataclasses.field(
+  optimizer_def: optax.GradientTransformationExtraArgs = dataclasses.field(
       metadata={"pytree_node": False}
   )
   loss_fn: LossFunction = dataclasses.field(metadata={"pytree_node": False})
@@ -187,6 +188,7 @@ class StatefulTrainer(pz.Struct):
       jit: bool = True,
       donate_states: bool = False,
   ) -> StatefulTrainer:
+    optimizer_def = optax.with_extra_args_support(optimizer_def)
     _, params = pz.unbind_params(model)
     initial_opt_state = optimizer_def.init(pz.freeze_params(params))
     if jit:
@@ -218,8 +220,24 @@ class StatefulTrainer(pz.Struct):
         step_fn=step_fn,
     )
 
-  def step(self, **kwargs) -> AuxOutPyTree:
-    """Runs one step of training."""
+  def step(
+      self,
+      *,
+      optimizer_extra_args: dict[str, Any] | None = None,
+      **kwargs,
+  ) -> AuxOutPyTree:
+    """Runs one step of training.
+
+    Args:
+      optimizer_extra_args: Extra keyword arguments forwarded to the optimizer's
+        ``update`` function. This can be used with Optax
+        ``GradientTransformationExtraArgs`` transformations. Defaults to no
+        extra optimizer arguments.
+      **kwargs: Arguments forwarded to the loss function.
+
+    Returns:
+      The auxiliary output returned by the loss function.
+    """
     stateless_model, variables = pz.unbind_variables(self.model)
     trainable_params = []
     frozen_params = []
@@ -244,6 +262,9 @@ class StatefulTrainer(pz.Struct):
         state_vars=pz.freeze_variables(tuple(state_vars)),
         loss_fn=self.loss_fn,
         optimizer_def=self.optimizer_def,
+        optimizer_extra_args=(
+            {} if optimizer_extra_args is None else optimizer_extra_args
+        ),
         kwargs=kwargs,
     )
 
