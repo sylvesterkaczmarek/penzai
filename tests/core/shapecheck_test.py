@@ -25,6 +25,91 @@ from penzai import pz
 
 class ShapecheckTest(absltest.TestCase):
 
+  def test_nonstring_batch_axis_on_linear_layer(self):
+    marker = pz.nx.TmpPosAxisMarker()
+    layer = pz.nn.Linear.from_config(
+        "nonstring_batch",
+        jax.random.key(0),
+        input_axes={"in_axis": 2},
+        output_axes={"out_axis": 3},
+    )
+    result = layer(pz.nx.zeros({"in_axis": 2, marker: 4}))
+    self.assertEqual(dict(result.named_shape), {marker: 4, "out_axis": 3})
+
+  def test_nonstring_axis_is_bound_by_named_unpack(self):
+    marker = pz.nx.TmpPosAxisMarker()
+    array = pz.nx.zeros({"features": 2, marker: 3, "batch": 5})
+    result = pz.chk.check_structure(
+        array,
+        pz.chk.ArraySpec(
+            named_shape={"features": 2, **pz.chk.var("B")},
+        ),
+    )
+    self.assertEqual(dict(result), {"B": {marker: 3, "batch": 5}})
+
+  def test_nonstring_axis_inlines_named_binding_across_leaves(self):
+    marker = pz.nx.TmpPosAxisMarker()
+    array = pz.nx.zeros({"features": 2, marker: 3})
+    result = pz.chk.check_structure(
+        {"first": array, "second": array},
+        {
+            "first": pz.chk.ArraySpec(
+                named_shape={"features": 2, **pz.chk.var("B")}
+            ),
+            "second": pz.chk.ArraySpec(
+                named_shape={"features": 2, **pz.chk.var("B")}
+            ),
+        },
+    )
+    self.assertEqual(dict(result), {"B": {marker: 3}})
+
+  def test_nonstring_axis_with_vars_for_axes(self):
+    marker = pz.nx.TmpPosAxisMarker()
+    array = pz.nx.zeros({marker: 3, "features": 2})
+    result = pz.chk.check_structure(
+        {"first": array, "second": array},
+        {
+            "first": pz.chk.ArraySpec(
+                named_shape={
+                    "features": 2,
+                    **pz.chk.vars_for_axes("B", {marker: 3}),
+                }
+            ),
+            "second": pz.chk.ArraySpec(
+                named_shape={"features": 2, **pz.chk.var("B")}
+            ),
+        },
+    )
+    self.assertEqual(dict(result), {"B": {marker: 3}})
+
+  def test_nonstring_named_axis_mismatch_is_structured_error(self):
+    marker = pz.nx.TmpPosAxisMarker()
+    array = pz.nx.zeros({"features": 2, marker: 3, "batch": 4})
+    with self.assertRaisesRegex(
+        pz.chk.StructureMismatchError, "Unexpected names in value"
+    ):
+      pz.chk.check_structure(
+          array,
+          pz.chk.ArraySpec(named_shape={"features": 2}),
+      )
+
+  def test_nonstring_known_axis_mismatch_raises_structure_error(self):
+    marker = pz.nx.TmpPosAxisMarker()
+    with self.assertRaises(pz.chk.StructureMismatchError):
+      pz.chk.check_structure(
+          pz.nx.zeros({marker: 4}),
+          pz.chk.ArraySpec(named_shape={**pz.chk.var("B")}),
+          known_vars={"B": {marker: 3}},
+      )
+
+  def test_nonstring_variable_index_matches_named_axis(self):
+    marker = pz.nx.TmpPosAxisMarker()
+    result = pz.chk.check_structure(
+        pz.nx.zeros({marker: 3}),
+        pz.chk.ArraySpec(named_shape={marker: pz.chk.var("B")[marker]}),
+    )
+    self.assertEqual(dict(result), {"B": {marker: 3}})
+
   def test_same_empty(self):
     match = pz.chk.check_structure(value=[], pattern=[])
     self.assertEqual(dict(match), {})
@@ -94,9 +179,11 @@ class ShapecheckTest(absltest.TestCase):
   def test_simple_named(self):
     match = pz.chk.check_structure(
         value={
-            "a": pz.nx.zeros(
-                {"foo": 3, "bar": 4, "baz": 5}, dtype=jnp.float32
-            ).untag("baz"),
+            "a": (
+                pz.nx.zeros(
+                    {"foo": 3, "bar": 4, "baz": 5}, dtype=jnp.float32
+                ).untag("baz")
+            ),
         },
         pattern={
             "a": pz.chk.ArraySpec(shape=(5,), named_shape={"foo": 3, "bar": 4})
@@ -116,9 +203,11 @@ class ShapecheckTest(absltest.TestCase):
     with self.assertRaisesWithLiteralMatch(pz.chk.StructureMismatchError, err):
       pz.chk.check_structure(
           value={
-              "a": pz.nx.zeros(
-                  {"foo": 3, "bar": 4, "baz": 5}, dtype=jnp.float32
-              ).untag("baz"),
+              "a": (
+                  pz.nx.zeros(
+                      {"foo": 3, "bar": 4, "baz": 5}, dtype=jnp.float32
+                  ).untag("baz")
+              ),
               "b": pz.nx.zeros({"foo": 3, "bar": 4, "baz": 5}, dtype=jnp.int32),
               "c": pz.nx.zeros(
                   {"foo": 3, "bar": 4, "baz": 5}, dtype=jnp.float32

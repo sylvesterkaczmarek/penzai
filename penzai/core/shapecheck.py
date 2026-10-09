@@ -25,7 +25,7 @@ for axes).
 from __future__ import annotations
 
 import collections
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Hashable, Mapping
 import dataclasses
 import itertools
 import typing
@@ -93,7 +93,7 @@ class DimVar(Mapping):
       and the inner name is the named shape of a single axis in that collection.
   """
 
-  name: str | tuple[str, str | int]
+  name: str | tuple[str, named_axes.AxisName | int]
 
   def __len__(self) -> int:
     return 1
@@ -108,7 +108,7 @@ class DimVar(Mapping):
       raise TypeError("Cannot index a tuple-named DimVar")
     elif key == MultiDimVar(self.name):
       return RemainingAxisPlaceholder()
-    elif isinstance(key, int | str):
+    elif isinstance(key, Hashable):
       return DimVar((self.name, key))
     else:
       raise KeyError(f"Cannot get key {repr(key)} from a DimVar")
@@ -148,7 +148,7 @@ class KnownDim:
     from_keypath: Optional keypath that indicates where this size was bound.
   """
 
-  name: str | tuple[str, str | int]
+  name: str | tuple[str, named_axes.AxisName | int]
   size: int
   from_keypath: str | None = None
 
@@ -177,8 +177,11 @@ def var(name: str) -> DimVar:
 
 def vars_for_axes(
     var_name: str,
-    axis_names_or_specs: Collection[str] | Mapping[str, int | None],
-) -> dict[str, DimVar | KnownDim]:
+    axis_names_or_specs: (
+        Collection[named_axes.AxisName]
+        | Mapping[named_axes.AxisName, int | None]
+    ),
+) -> dict[named_axes.AxisName, DimVar | KnownDim]:
   """Creates variables for a known collection of named axes.
 
   Args:
@@ -512,7 +515,7 @@ def _try_match_one(
     keypath,
     pattern: int | DimVar | MultiDimVar | KnownDim,
     value: int | tuple[int, ...] | dict[named_axes.AxisName, int],
-    solutions: dict[str | tuple[str, str], _Binding],
+    solutions: dict[str | tuple[str, named_axes.AxisName | int], _Binding],
 ) -> str | None:
   """Internal helper to match a pattern with a value.
 
@@ -574,7 +577,7 @@ def _try_match_one(
 
 def _positional_inline_multidimvars(
     constraint: _PositionalConstraint,
-    solutions: dict[str | tuple[str, str], _Binding],
+    solutions: dict[str | tuple[str, named_axes.AxisName | int], _Binding],
 ) -> tuple[_PositionalConstraint, str]:
   """Simplifies a positional constraint by inlining multivars."""
   new_pattern = []
@@ -601,7 +604,7 @@ def _positional_inline_multidimvars(
 
 def _named_inline_multidimvars(
     constraint: _NamedConstraint,
-    solutions: dict[str | tuple[str, str], _Binding],
+    solutions: dict[str | tuple[str, named_axes.AxisName | int], _Binding],
 ) -> tuple[_NamedConstraint | _UnsatisfiedConstraint, str]:
   """Simplifies a named constraint by inlining multivars."""
   new_pattern = {}
@@ -618,7 +621,6 @@ def _named_inline_multidimvars(
     binding = solutions[key.name]
     assert isinstance(binding.value, dict)
     for subkey, subval in binding.value.items():
-      assert isinstance(subkey, str)
       if subkey in new_pattern:
         return (
             _UnsatisfiedConstraint(
@@ -974,7 +976,7 @@ def check_structure(
             # No unpack pattern, but we ran out of keys.
             subfailures.append(
                 "  Unexpected names in value's named shape:"
-                f" {sorted(remaining_value_keys)}"
+                f" {sorted(remaining_value_keys, key=repr)}"
             )
           if subfailures:
             failures.append((
@@ -1038,7 +1040,6 @@ def check_structure(
           ):
             found = solutions[name[0]].value[name[1]]
         else:
-          assert isinstance(name[1], str)
           if isinstance(solutions[name[0]].value, dict):
             found = solutions[name[0]].value.get(name[1])
         if found != binding.value:
